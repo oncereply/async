@@ -66,6 +66,24 @@ function getFunctionsObject(call_order) {
     };
 }
 
+exports['forever'] = function (test) {
+    test.expect(1);
+    var counter = 0;
+    function addOne(callback) {
+        counter++;
+        if (counter === 50) {
+            return callback('too big!');
+        }
+        async.setImmediate(function () {
+            callback();
+        });
+    }
+    async.forever(addOne, function (err) {
+        test.equal(err, 'too big!');
+        test.done();
+    });
+};
+
 exports['applyEach'] = function (test) {
     test.expect(4);
     var call_order = [];
@@ -92,6 +110,36 @@ exports['applyEach'] = function (test) {
     };
     async.applyEach([one, two, three], 5, function (err) {
         test.same(call_order, ['two', 'one', 'three']);
+        test.done();
+    });
+};
+
+exports['applyEachSeries'] = function (test) {
+    test.expect(4);
+    var call_order = [];
+    var one = function (val, cb) {
+        test.equal(val, 5);
+        setTimeout(function () {
+            call_order.push('one');
+            cb(null, 1);
+        }, 100);
+    };
+    var two = function (val, cb) {
+        test.equal(val, 5);
+        setTimeout(function () {
+            call_order.push('two');
+            cb(null, 2);
+        }, 50);
+    };
+    var three = function (val, cb) {
+        test.equal(val, 5);
+        setTimeout(function () {
+            call_order.push('three');
+            cb(null, 3);
+        }, 150);
+    };
+    async.applyEachSeries([one, two, three], 5, function (err) {
+        test.same(call_order, ['one', 'two', 'three']);
         test.done();
     });
 };
@@ -416,6 +464,13 @@ exports['waterfall'] = function(test){
 
 exports['waterfall empty array'] = function(test){
     async.waterfall([], function(err){
+        test.done();
+    });
+};
+
+exports['waterfall non-array'] = function(test){
+    async.waterfall({}, function(err){
+        test.equals(err.message, 'First argument to waterfall must be an array of functions');
         test.done();
     });
 };
@@ -2341,7 +2396,7 @@ exports['queue events'] = function(test) {
     var q = async.queue(function(task, cb) {
         // nop
         calls.push('process ' + task);
-        cb();
+        async.setImmediate(cb);
     }, 3);
 
     q.saturated = function() {
@@ -2380,59 +2435,4 @@ exports['queue events'] = function(test) {
     q.push('zoo', function () {calls.push('zoo cb');});
     q.push('poo', function () {calls.push('poo cb');});
     q.push('moo', function () {calls.push('moo cb');});
-};
-
-exports['avoid stack overflows for sync tasks'] = function (test) {
-    if (typeof window !== 'undefined') {
-        // skip this test in the browser, it takes AGES
-        return test.done();
-    }
-    var arr = [];
-    var funcarr = [];
-    for (var i = 0; i < 10000; i++) {
-        arr.push[i];
-        funcarr.push(function (cb) { return cb(); });
-    }
-    var iter = function (i, cb) { cb(); };
-    var counter = 0;
-    var pred1 = function () {
-        return counter <= 10000;
-    };
-    var iter = function (cb) {
-        counter++;
-        cb();
-    };
-    var pred2 = function () {
-        return counter > 10000;
-    };
-    var resetCounter = function (cb) {
-        counter = 0;
-        cb();
-    }
-    async.series([
-        async.apply(async.each, arr, iter),
-        async.apply(async.eachSeries, arr, iter),
-        async.apply(async.eachLimit, arr, iter, 2),
-        async.apply(async.whilst, pred1, iter),
-        resetCounter,
-        async.apply(async.until, pred2, iter),
-        resetCounter,
-        async.apply(async.doWhilst, iter, pred1),
-        resetCounter,
-        async.apply(async.doUntil, iter, pred2),
-        async.apply(async.series, funcarr),
-        async.apply(async.parallel, funcarr),
-        function (callback) {
-            var q = async.queue(function (task, cb) {
-                cb();
-            }, 2);
-            for (var j = 0; j < 10000; j++) {
-                q.push(j);
-            }
-            q.drain = callback;
-        }
-    ],
-    function (err) {
-        test.done(err);
-    });
 };
